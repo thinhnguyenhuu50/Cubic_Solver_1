@@ -1,0 +1,20 @@
+Specifications
+In this exercise, you must create RTL code for the Cubic Solver module. As the name suggests, this module will attempt to solve the cubic equation given by its inputs.
+Interface
+You have to come up with your own control signals for the module. It's up to you to decide on details of the design (single-cycle or multi-cycle, what starts the calculation, etc.). Whatever you choose, please give some rationale in your design document.
+Regardless of your design, however, you must at least have these inputs/outputs:
+- The module will accept 4 inputs. You can call them a, b, c and d, with each representing a coefficient of the equation ax^3+bx^2+cx+d=0. Feel free to use other schemes like 'a3,a2,a1, and a0' in your code if you find them to be more readable.
+- The module will output (up to) 3 solutions to the cubic equation given by a, b, c and d. You can call them x0, x1, and x2.
++ You may choose to only output real solutions. In this case, if there are fewer than 3 solutions, output NaN at the unused output(s). Preferably, x2 should be the first to go unused, then x1 and x0.
++ If you choose to also output complex solutions, then use the coordinate form (x0_re, x0_im).
++ Either way, if a double root or a triple root occurs, then it is okay for your outputs to be duplicated. For example, consider the input equation x^3-x^2-8x+12=0, then both [-3,2,2] and [-3,2,NaN] are accepted as correct module outputs.
++ If the input is not a valid cubic equation (i.e. a=0), then it's up to you to choose between: outputting all NaNs; having a dedicated error signal; or implementing a quadratic solver.
+- In any case, inputs and outputs that have to do with the equation and its solutions have to use single-precision floating-point representation (FP32). Your implementation of FP32 must conform to the IEEE 754 standard.
+Implement a golden model using NumPy in Python used to compare module's outputs.
+Please use Padé approximation but you should attempt to find the range of acceptable approximations to determine its order before settling on an approximation. Use lookup table for speedup. Use Padé approximation and binary logarithm and exponent for square root and cube root of numbers represented by a floating-point binary following the IEEE 754 standard.
+Testcase design
+Here are some suggestions for the test cases:
+- Test your basic FP32 arithmetic operations: addition, subtraction, multiplication, and division.
+- Test the more complex functions that you have implemented, if any: square root, cube root, sine, cosine, arcsine, arccosine, logarithm, etc. 
+- Test your module on the many different cases of the cubic equation.
+- Compare your module output against your golden model.
