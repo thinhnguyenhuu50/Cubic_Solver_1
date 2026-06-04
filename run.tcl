@@ -49,7 +49,7 @@ set_db / .information_level 7
 
 
 puts "\[DEBUG\] ---- Loading technology libraries ----"
-read_libs { ../LIB/slow.lib }
+read_libs { ../LIB/fast.lib }
 puts "\[DEBUG\] ---- Technology libraries loaded OK ----"
 puts "\[DEBUG\] ---- Loading LEF physical data ----"
 read_physical -lef { ../LEF/gsclib045_tech.lef ../LEF/gsclib045_macro.lef }
@@ -66,9 +66,7 @@ puts "\[DEBUG\] ---- LEF physical data loaded OK ----"
 
 
 puts "\[DEBUG\] ---- Reading HDL source files ----"
-read_hdl -v2001 " fp32_common.vh fp32_int_conv.v fp32_cmp.v fp32_addsub.v fp32_mul.v fp32_div.v \
-	fp32_log2.v fp32_exp2.v fp32_powroot.v fp32_cos.v fp32_acos.v \
-	cubic_solver.v "
+read_hdl -v2001 " cubic_solver.v "
 puts "\[DEBUG\] ---- HDL read complete ----"
 
 puts "\[DEBUG\] ---- Elaborating design: $DESIGN ----"
@@ -180,7 +178,7 @@ time_info OPT
 puts "\[DEBUG\] ---- Writing final snapshot & reports ----"
 write_snapshot -outdir $_REPORTS_PATH -tag final
 report_summary -directory $_REPORTS_PATH
-## write_hdl  > ${_OUTPUTS_PATH}/${DESIGN}_m.v
+write_hdl  > ${_OUTPUTS_PATH}/${DESIGN}_m.v
 ## write_script > ${_OUTPUTS_PATH}/${DESIGN}_m.script
 puts "\[DEBUG\] ---- Writing final SDC ----"
 write_sdc > ${_OUTPUTS_PATH}/${DESIGN}_m.sdc

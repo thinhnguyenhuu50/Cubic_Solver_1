@@ -1,7 +1,7 @@
 ###############################################################
 ## SDC Constraints for cubic_solver
 ## Target: Cadence Genus
-## Clock: 100 MHz (10 ns period) — adjust as needed
+## Clock: 25 MHz (40 ns period) — adjust as needed
 ###############################################################
 current_design cubic_solver
 
@@ -9,7 +9,7 @@ current_design cubic_solver
 ## Clock Definition
 ###############################################################
 
-set CLK_PERIOD 20.0
+set CLK_PERIOD 40.0
 set CLK_NAME   clk
 
 create_clock -name $CLK_NAME -period $CLK_PERIOD [get_ports clk]
@@ -56,13 +56,9 @@ set OUTPUT_DELAY [expr {$CLK_PERIOD * 0.3}]
 
 set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports in_ready]
 set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports out_valid]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports invalid]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x0_re[*]}]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x0_im[*]}]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x1_re[*]}]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x1_im[*]}]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x2_re[*]}]
-set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x2_im[*]}]
+set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x0[*]}]
+set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x1[*]}]
+set_output_delay $OUTPUT_DELAY -clock $CLK_NAME [get_ports {x2[*]}]
 
 ###############################################################
 ## Driving Cell and Load (library-dependent)
