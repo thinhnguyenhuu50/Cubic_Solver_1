@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run Verilog Simulation",
+            "type": "shell",
+            "command": "iverilog -g2012 -s ${input:testbenchName} -o sim.vvp *.v && vvp sim.vvp",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "testbenchName",
+            "type": "pickString", // Changed to pickString
+            "description": "Select the testbench to simulate",
+            "options": [
+                "tb_1",
+                "tb_2",
+                "tb_3",
+                "tb_4",
+                "tb_5",
+                "tb_6",
+                "tb_7",
+                "tb_8",
+                "tb_9",
+                "tb_10",
+                "tb_11",
+                "tb_12",
+                "tb_13",
+                "tb_14",
+                "tb_15",
+            ],
+            "default": "tb_1"
+        }
+    ]
+}
