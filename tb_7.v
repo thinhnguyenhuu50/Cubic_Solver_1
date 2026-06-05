@@ -40,12 +40,12 @@ module tb_7;
     // sel=0 (log2 table)
     // -----------------------------------------------------------------------
     localparam LOG2_ADDR0  = 32'h00000000; // log2(1.0)     = 0.0
-    localparam LOG2_ADDR4  = 32'h3E2B8034; // log2(1.125)   ≈ 0.1699 (spot-check)
+    localparam LOG2_ADDR4  = 32'h3E2E00D2; // log2(1.125)   ≈ 0.1699 (spot-check)
     localparam LOG2_ADDR8  = 32'h3EA4D3C2; // log2(1.25)    = 0.3219
-    localparam LOG2_ADDR12 = 32'h3EF738D3; // log2(1.375)   ≈ 0.4594 (spot-check)
+    localparam LOG2_ADDR12 = 32'h3EEB3A9F; // log2(1.375)   ≈ 0.4594 (spot-check)
     localparam LOG2_ADDR16 = 32'h3F15C01A; // log2(1.5)     = 0.5850
-    localparam LOG2_ADDR20 = 32'h3F3B9476; // log2(1.625)   ≈ 0.7004 (spot-check)
-    localparam LOG2_ADDR24 = 32'h3F5B2C3E; // log2(1.75)    ≈ 0.8074 (spot-check)
+    localparam LOG2_ADDR20 = 32'h3F335004; // log2(1.625)   ≈ 0.7004 (spot-check)
+    localparam LOG2_ADDR24 = 32'h3F4EAED0; // log2(1.75)    ≈ 0.8074 (spot-check)
     localparam LOG2_ADDR31 = 32'h3F7A2F04; // log2(1.96875) = 0.9773
 
     // -----------------------------------------------------------------------

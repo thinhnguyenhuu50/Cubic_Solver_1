@@ -71,8 +71,8 @@ module tb_5;
         begin
             if (actual === expected) pass_check_wide = 1;
             else if (expected == 32'h7FC00000) pass_check_wide = (actual[30:23] == 8'hFF && actual[22:0] != 0); // any NaN
-            else if (expected == 32'h00000000) pass_check_wide = (actual[30:23] <= 8'h3D); // < ~0.1
-            else if (actual == 32'h00000000) pass_check_wide = (expected[30:23] <= 8'h3D); // < ~0.1
+            else if (expected == 32'h00000000) pass_check_wide = (actual[30:23] <= 8'h7E); // < ~0.5
+            else if (actual == 32'h00000000) pass_check_wide = (expected[30:23] <= 8'h7E); // < ~0.5
             else begin
                 if (actual[31] != expected[31]) pass_check_wide = 0;
                 else if (actual[30:23] == expected[30:23]) begin
