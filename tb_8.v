@@ -161,7 +161,7 @@ module tb_8;
     // Main test sequence
     // ----------------------------------------------------------------
     initial begin
-        $dumpfile("tb_8.vcd");
+        $dumpfile("waveform.vcd");
         $dumpvars(0, tb_8);
 
         // Initialise

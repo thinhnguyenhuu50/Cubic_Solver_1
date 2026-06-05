@@ -35,7 +35,7 @@ module tb_2;
     // VCD dump
     // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("tb_2.vcd");
+        $dumpfile("waveform.vcd");
         $dumpvars(0, tb_2);
     end
 
