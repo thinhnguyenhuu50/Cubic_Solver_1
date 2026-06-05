@@ -1,251 +1,172 @@
 `timescale 1ns/1ps
 
-//============================================================================
-// tb_7.v — Padé Approximation / LUT Test
-// Test name : tb_7
-//
-// Purpose   : Exercise the Padé approximation lookup table by driving a
-//             variety of coefficients that produce different discriminant
-//             low-bit patterns, thereby hitting different LUT entries.
-//
-// Test vectors:
-//   TC1: a=1, b= 1, c= 1, d= 1
-//   TC2: a=2, b= 3, c= 4, d= 5
-//   TC3: a=1, b=-1, c=-1, d= 1
-//   TC4: a=3, b= 0, c=-3, d= 0
-//============================================================================
+//////////////////////////////////////////////////////////////////////////////
+// tb_7.v — Padé LUT ROM Readout testbench
+// Reads ALL 32 entries for sel=0 (log2 table) and sel=1 (exp2 table).
+// Verifies key entries with exact-match comparison.
+//////////////////////////////////////////////////////////////////////////////
 
 module tb_7;
 
-    // ----------------------------------------------------------------
-    // Clock parameters  (25 MHz → 40 ns period)
-    // ----------------------------------------------------------------
-    parameter CLK_PERIOD = 40;
+    // -----------------------------------------------------------------------
+    // Clock generation (40ns period, 25 MHz — kept for consistency)
+    // -----------------------------------------------------------------------
+    reg clk;
+    initial clk = 0;
+    always #20 clk = ~clk;
 
-    // ----------------------------------------------------------------
-    // DUT signals
-    // ----------------------------------------------------------------
-    reg         clk;
-    reg         rst_n;
-    reg         in_valid_in;
-    wire        in_ready_out;
-    reg  [31:0] a_in, b_in, c_in, d_in;
-    wire        out_valid_out;
-    reg         out_ready_in;
-    wire [31:0] x0_out, x1_out, x2_out;
+    // -----------------------------------------------------------------------
+    // DUT signals — pade_lut
+    // -----------------------------------------------------------------------
+    reg  [4:0]  addr;
+    reg         sel;
+    wire [31:0] data;
 
-    // ----------------------------------------------------------------
-    // Score-keeping
-    // ----------------------------------------------------------------
-    integer pass_count;
-    integer fail_count;
-    integer test_num;
-
-    // ----------------------------------------------------------------
-    // DUT instantiation
-    // ----------------------------------------------------------------
-    cubic_solver uut (
-        .clk       (clk),
-        .rst_n     (rst_n),
-        .in_valid  (in_valid_in),
-        .in_ready  (in_ready_out),
-        .a         (a_in),
-        .b         (b_in),
-        .c         (c_in),
-        .d         (d_in),
-        .out_valid (out_valid_out),
-        .out_ready (out_ready_in),
-        .x0        (x0_out),
-        .x1        (x1_out),
-        .x2        (x2_out)
+    pade_lut u_lut (
+        .addr (addr),
+        .sel  (sel),
+        .data (data)
     );
 
-    // ----------------------------------------------------------------
-    // Clock generation
-    // ----------------------------------------------------------------
-    initial clk = 1'b0;
-    always #(CLK_PERIOD / 2) clk = ~clk;
+    // -----------------------------------------------------------------------
+    // Pass / fail counters
+    // -----------------------------------------------------------------------
+    integer pass_count;
+    integer fail_count;
+    integer i;
 
-    // ----------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Expected values for key entries
+    // sel=0 (log2 table)
+    // -----------------------------------------------------------------------
+    localparam LOG2_ADDR0  = 32'h00000000; // log2(1.0)     = 0.0
+    localparam LOG2_ADDR4  = 32'h3E2B8034; // log2(1.125)   ≈ 0.1699 (spot-check)
+    localparam LOG2_ADDR8  = 32'h3EA4D3C2; // log2(1.25)    = 0.3219
+    localparam LOG2_ADDR12 = 32'h3EF738D3; // log2(1.375)   ≈ 0.4594 (spot-check)
+    localparam LOG2_ADDR16 = 32'h3F15C01A; // log2(1.5)     = 0.5850
+    localparam LOG2_ADDR20 = 32'h3F3B9476; // log2(1.625)   ≈ 0.7004 (spot-check)
+    localparam LOG2_ADDR24 = 32'h3F5B2C3E; // log2(1.75)    ≈ 0.8074 (spot-check)
+    localparam LOG2_ADDR31 = 32'h3F7A2F04; // log2(1.96875) = 0.9773
+
+    // -----------------------------------------------------------------------
+    // Expected values for key entries
+    // sel=1 (exp2 table)
+    // -----------------------------------------------------------------------
+    localparam EXP2_ADDR0  = 32'h3F800000; // 2^0       = 1.0
+    localparam EXP2_ADDR4  = 32'h3F8B95C2; // 2^0.125   ≈ 1.0905 (spot-check)
+    localparam EXP2_ADDR8  = 32'h3F9837F0; // 2^0.25    = 1.1892
+    localparam EXP2_ADDR12 = 32'h3FA5FED7; // 2^0.375   ≈ 1.2968 (spot-check)
+    localparam EXP2_ADDR16 = 32'h3FB504F3; // 2^0.5     = 1.4142
+    localparam EXP2_ADDR20 = 32'h3FC5672A; // 2^0.625   ≈ 1.5422 (spot-check)
+    localparam EXP2_ADDR24 = 32'h3FD744FD; // 2^0.75    ≈ 1.6818 (spot-check)
+    localparam EXP2_ADDR31 = 32'h3FFA83B3; // 2^0.96875 = 1.9571
+
+    // -----------------------------------------------------------------------
     // VCD dump
-    // ----------------------------------------------------------------
+    // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("waveform.vcd");
+        $dumpfile("tb_7.vcd");
         $dumpvars(0, tb_7);
     end
 
-    // ----------------------------------------------------------------
-    // Helper: drive_and_wait
-    //   Drives a, b, c, d with in_valid for one cycle, then waits for
-    //   out_valid, displays the roots, and pulses out_ready.
-    // ----------------------------------------------------------------
-    task drive_and_wait;
-        input [31:0] ta, tb, tc, td;
+    // -----------------------------------------------------------------------
+    // Task: check one LUT entry (exact match)
+    // -----------------------------------------------------------------------
+    task check_entry;
+        input [4:0]  t_addr;
+        input        t_sel;
+        input [31:0] t_expected;
+        input [8*32-1:0] t_label; // up to 32-char label string
         begin
-            @(posedge clk);
-            a_in       = ta;
-            b_in       = tb;
-            c_in       = tc;
-            d_in       = td;
-            in_valid_in = 1'b1;
-            @(posedge clk);
-            in_valid_in = 1'b0;
-            // Wait for out_valid
-            wait (out_valid_out == 1'b1);
-            @(posedge clk);
-            #1;
-            $display("  x0 = %h, x1 = %h, x2 = %h", x0_out, x1_out, x2_out);
-            out_ready_in = 1'b1;
-            @(posedge clk);
-            out_ready_in = 1'b0;
+            addr = t_addr;
+            sel  = t_sel;
+            #10;
+            if (data === t_expected) begin
+                $display("  [PASS] %0s: addr=%2d sel=%0d -> %h (expected %h)",
+                         t_label, t_addr, t_sel, data, t_expected);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("  [FAIL] %0s: addr=%2d sel=%0d -> %h (expected %h)",
+                         t_label, t_addr, t_sel, data, t_expected);
+                fail_count = fail_count + 1;
+            end
         end
     endtask
 
-    // ----------------------------------------------------------------
-    // Helper: check outputs are valid IEEE-754 (no X/Z bits)
-    // ----------------------------------------------------------------
-    function valid_fp32;
-        input [31:0] v0, v1, v2;
-        begin
-            valid_fp32 = (^v0 !== 1'bx) && (^v1 !== 1'bx) && (^v2 !== 1'bx);
-        end
-    endfunction
-
-    // ----------------------------------------------------------------
-    // Main stimulus
-    // ----------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Main test sequence
+    // -----------------------------------------------------------------------
     initial begin
-        // ----------------------------------------------------------
-        // Banner
-        // ----------------------------------------------------------
-        $display("===========================================================");
-        $display(" tb_7 : Pade Approximation / LUT Test  (tb_7)");
-        $display("===========================================================");
+        pass_count = 0;
+        fail_count = 0;
+        addr = 0;
+        sel  = 0;
 
-        // Initialise
-        rst_n        = 1'b0;
-        in_valid_in  = 1'b0;
-        out_ready_in = 1'b0;
-        a_in         = 32'h0;
-        b_in         = 32'h0;
-        c_in         = 32'h0;
-        d_in         = 32'h0;
-        pass_count   = 0;
-        fail_count   = 0;
-        test_num     = 0;
+        $display("==========================================================");
+        $display("  tb_7 — Pade LUT ROM Readout Testbench");
+        $display("==========================================================");
 
-        // Hold reset for several clock cycles
-        repeat (5) @(posedge clk);
-        rst_n = 1'b1;
-        repeat (2) @(posedge clk);
+        // ===================================================================
+        // sel=0: log2 table — read all 32 entries
+        // ===================================================================
+        $display("");
+        $display("--- sel=0 (log2 table): Full readout ---");
 
-        // ===========================================================
-        // TC1: a=1.0, b=1.0, c=1.0, d=1.0
-        //   x^3 + x^2 + x + 1 = 0  →  (x+1)(x^2+1) = 0
-        //   Real root: -1 ; complex pair: ±j
-        // ===========================================================
-        test_num = 1;
-        $display("\n--- TC%0d: a=1.0, b=1.0, c=1.0, d=1.0 ---", test_num);
-        drive_and_wait(32'h3F800000,   // 1.0
-                       32'h3F800000,   // 1.0
-                       32'h3F800000,   // 1.0
-                       32'h3F800000);  // 1.0
-
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
+        for (i = 0; i < 32; i = i + 1) begin
+            addr = i[4:0];
+            sel  = 1'b0;
+            #10;
+            $display("    log2[%2d] = %h", i, data);
         end
 
-        repeat (5) @(posedge clk);
+        // Key entry verification for log2 table
+        $display("");
+        $display("--- sel=0 (log2 table): Key entry checks ---");
 
-        // ===========================================================
-        // TC2: a=2.0, b=3.0, c=4.0, d=5.0
-        //   2x^3 + 3x^2 + 4x + 5 = 0  →  different LUT index
-        // ===========================================================
-        test_num = 2;
-        $display("\n--- TC%0d: a=2.0, b=3.0, c=4.0, d=5.0 ---", test_num);
-        drive_and_wait(32'h40000000,   // 2.0
-                       32'h40400000,   // 3.0
-                       32'h40800000,   // 4.0
-                       32'h40A00000);  // 5.0
+        check_entry(5'd0,  1'b0, LOG2_ADDR0,  "log2[0] ");
+        check_entry(5'd4,  1'b0, LOG2_ADDR4,  "log2[4] ");
+        check_entry(5'd8,  1'b0, LOG2_ADDR8,  "log2[8] ");
+        check_entry(5'd12, 1'b0, LOG2_ADDR12, "log2[12]");
+        check_entry(5'd16, 1'b0, LOG2_ADDR16, "log2[16]");
+        check_entry(5'd20, 1'b0, LOG2_ADDR20, "log2[20]");
+        check_entry(5'd24, 1'b0, LOG2_ADDR24, "log2[24]");
+        check_entry(5'd31, 1'b0, LOG2_ADDR31, "log2[31]");
 
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
+        // ===================================================================
+        // sel=1: exp2 table — read all 32 entries
+        // ===================================================================
+        $display("");
+        $display("--- sel=1 (exp2 table): Full readout ---");
+
+        for (i = 0; i < 32; i = i + 1) begin
+            addr = i[4:0];
+            sel  = 1'b1;
+            #10;
+            $display("    exp2[%2d] = %h", i, data);
         end
 
-        repeat (5) @(posedge clk);
+        // Key entry verification for exp2 table
+        $display("");
+        $display("--- sel=1 (exp2 table): Key entry checks ---");
 
-        // ===========================================================
-        // TC3: a=1.0, b=-1.0, c=-1.0, d=1.0
-        //   x^3 - x^2 - x + 1 = 0  →  (x-1)^2(x+1) = 0
-        //   Roots: 1, 1, -1  (repeated root — yet another LUT entry)
-        // ===========================================================
-        test_num = 3;
-        $display("\n--- TC%0d: a=1.0, b=-1.0, c=-1.0, d=1.0 ---", test_num);
-        drive_and_wait(32'h3F800000,   // 1.0
-                       32'hBF800000,   // -1.0
-                       32'hBF800000,   // -1.0
-                       32'h3F800000);  // 1.0
+        check_entry(5'd0,  1'b1, EXP2_ADDR0,  "exp2[0] ");
+        check_entry(5'd4,  1'b1, EXP2_ADDR4,  "exp2[4] ");
+        check_entry(5'd8,  1'b1, EXP2_ADDR8,  "exp2[8] ");
+        check_entry(5'd12, 1'b1, EXP2_ADDR12, "exp2[12]");
+        check_entry(5'd16, 1'b1, EXP2_ADDR16, "exp2[16]");
+        check_entry(5'd20, 1'b1, EXP2_ADDR20, "exp2[20]");
+        check_entry(5'd24, 1'b1, EXP2_ADDR24, "exp2[24]");
+        check_entry(5'd31, 1'b1, EXP2_ADDR31, "exp2[31]");
 
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
-        end
-
-        repeat (5) @(posedge clk);
-
-        // ===========================================================
-        // TC4: a=3.0, b=0.0, c=-3.0, d=0.0
-        //   3x^3 - 3x = 0  →  3x(x^2 - 1) = 0
-        //   Roots: 0, 1, -1
-        // ===========================================================
-        test_num = 4;
-        $display("\n--- TC%0d: a=3.0, b=0.0, c=-3.0, d=0.0 ---", test_num);
-        drive_and_wait(32'h40400000,   // 3.0
-                       32'h00000000,   // 0.0
-                       32'hC0400000,   // -3.0
-                       32'h00000000);  // 0.0
-
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
-        end
-
-        // ===========================================================
+        // ===================================================================
         // Summary
-        // ===========================================================
-        repeat (5) @(posedge clk);
-        $display("\n===========================================================");
-        $display(" tb_7 Summary:  %0d PASSED, %0d FAILED  (of %0d tests)",
+        // ===================================================================
+        $display("");
+        $display("==========================================================");
+        $display("  tb_7 SUMMARY: %0d PASSED, %0d FAILED out of %0d checks",
                  pass_count, fail_count, pass_count + fail_count);
-        if (fail_count == 0)
-            $display(" *** ALL TESTS PASSED ***");
-        else
-            $display(" *** SOME TESTS FAILED ***");
-        $display("===========================================================\n");
+        $display("==========================================================");
 
-        $finish;
-    end
-
-    // ----------------------------------------------------------------
-    // Timeout watchdog (prevent hang)
-    // ----------------------------------------------------------------
-    initial begin
-        #100000;
-        $display("[TIMEOUT] Simulation exceeded 100 us — aborting.");
         $finish;
     end
 

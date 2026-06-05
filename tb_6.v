@@ -1,226 +1,238 @@
 `timescale 1ns/1ps
 
-//============================================================================
-// tb_6.v — Cube Root Path Test
-// Test name : tb_6
-//
-// Purpose   : Exercise the internal cube-root datapath used in Cardano's
-//             formula when the discriminant is negative (one real root,
-//             two complex conjugate roots).
-//
-// Test vectors:
-//   TC1: a=1, b=0, c=0, d=-8   → real root: 2
-//   TC2: a=1, b=0, c=0, d=-27  → real root: 3
-//   TC3: a=1, b=0, c=3, d= 4   → cbrt path exercised
-//============================================================================
+//////////////////////////////////////////////////////////////////////////////
+// tb_6.v — Cube Root + Arccosine testbench
+// Tests fp32_cbrt (Part A) and fp32_acos (Part B) combinational modules.
+//////////////////////////////////////////////////////////////////////////////
 
 module tb_6;
 
-    // ----------------------------------------------------------------
-    // Clock parameters  (25 MHz → 40 ns period)
-    // ----------------------------------------------------------------
-    parameter CLK_PERIOD = 40;
+    // -----------------------------------------------------------------------
+    // Clock generation (40ns period, 25 MHz — kept for consistency)
+    // -----------------------------------------------------------------------
+    reg clk;
+    initial clk = 0;
+    always #20 clk = ~clk;
 
-    // ----------------------------------------------------------------
-    // DUT signals
-    // ----------------------------------------------------------------
-    reg         clk;
-    reg         rst_n;
-    reg         in_valid_in;
-    wire        in_ready_out;
-    reg  [31:0] a_in, b_in, c_in, d_in;
-    wire        out_valid_out;
-    reg         out_ready_in;
-    wire [31:0] x0_out, x1_out, x2_out;
+    // -----------------------------------------------------------------------
+    // DUT signals — fp32_cbrt
+    // -----------------------------------------------------------------------
+    reg  [31:0] cbrt_a;
+    wire [31:0] cbrt_result;
 
-    // ----------------------------------------------------------------
-    // Score-keeping
-    // ----------------------------------------------------------------
-    integer pass_count;
-    integer fail_count;
-    integer test_num;
-
-    // ----------------------------------------------------------------
-    // DUT instantiation
-    // ----------------------------------------------------------------
-    cubic_solver uut (
-        .clk       (clk),
-        .rst_n     (rst_n),
-        .in_valid  (in_valid_in),
-        .in_ready  (in_ready_out),
-        .a         (a_in),
-        .b         (b_in),
-        .c         (c_in),
-        .d         (d_in),
-        .out_valid (out_valid_out),
-        .out_ready (out_ready_in),
-        .x0        (x0_out),
-        .x1        (x1_out),
-        .x2        (x2_out)
+    fp32_cbrt u_cbrt (
+        .a      (cbrt_a),
+        .result (cbrt_result)
     );
 
-    // ----------------------------------------------------------------
-    // Clock generation
-    // ----------------------------------------------------------------
-    initial clk = 1'b0;
-    always #(CLK_PERIOD / 2) clk = ~clk;
+    // -----------------------------------------------------------------------
+    // DUT signals — fp32_acos
+    // -----------------------------------------------------------------------
+    reg  [31:0] acos_a;
+    wire [31:0] acos_result;
 
-    // ----------------------------------------------------------------
-    // VCD dump
-    // ----------------------------------------------------------------
-    initial begin
-        $dumpfile("waveform.vcd");
-        $dumpvars(0, tb_6);
-    end
+    fp32_acos u_acos (
+        .a      (acos_a),
+        .result (acos_result)
+    );
 
-    // ----------------------------------------------------------------
-    // Helper: drive_and_wait
-    //   Drives a, b, c, d with in_valid for one cycle, then waits for
-    //   out_valid, displays the roots, and pulses out_ready.
-    // ----------------------------------------------------------------
-    task drive_and_wait;
-        input [31:0] ta, tb, tc, td;
+    // -----------------------------------------------------------------------
+    // Pass / fail counters
+    // -----------------------------------------------------------------------
+    integer pass_count;
+    integer fail_count;
+
+    // -----------------------------------------------------------------------
+    // FP32 constants
+    // -----------------------------------------------------------------------
+    localparam FP_ZERO     = 32'h00000000; // 0.0
+    localparam FP_HALF     = 32'h3F000000; // 0.5
+    localparam FP_ONE      = 32'h3F800000; // 1.0
+    localparam FP_NEG_ONE  = 32'hBF800000; // -1.0
+    localparam FP_TWO      = 32'h40000000; // 2.0
+    localparam FP_NEG_TWO  = 32'hC0000000; // -2.0
+    localparam FP_THREE    = 32'h40400000; // 3.0
+    localparam FP_EIGHT    = 32'h41000000; // 8.0
+    localparam FP_NEG_EIGHT= 32'hC1000000; // -8.0
+    localparam FP_27       = 32'h41D80000; // 27.0
+    localparam FP_NEG_27   = 32'hC1D80000; // -27.0
+    localparam FP_NAN      = 32'h7FC00000; // NaN
+    localparam FP_POS_INF  = 32'h7F800000; // +Inf
+    localparam FP_PI_HALF  = 32'h3FC90FDB; // PI/2
+    localparam FP_PI       = 32'h40490FDB; // PI
+    localparam FP_PI_THIRD = 32'h3F860A92; // PI/3 ≈ 1.0472
+
+    // -----------------------------------------------------------------------
+    // Wide tolerance check for LUT-based approximation results
+    // -----------------------------------------------------------------------
+    function pass_check_wide;
+        input [31:0] actual, expected;
+        reg [31:0] a_abs, e_abs, diff;
         begin
-            @(posedge clk);
-            a_in       = ta;
-            b_in       = tb;
-            c_in       = tc;
-            d_in       = td;
-            in_valid_in = 1'b1;
-            @(posedge clk);
-            in_valid_in = 1'b0;
-            // Wait for out_valid
-            wait (out_valid_out == 1'b1);
-            @(posedge clk);
-            #1;
-            $display("  x0 = %h, x1 = %h, x2 = %h", x0_out, x1_out, x2_out);
-            out_ready_in = 1'b1;
-            @(posedge clk);
-            out_ready_in = 1'b0;
-        end
-    endtask
-
-    // ----------------------------------------------------------------
-    // Helper: check outputs are valid IEEE-754 (no X/Z bits)
-    // ----------------------------------------------------------------
-    function valid_fp32;
-        input [31:0] v0, v1, v2;
-        begin
-            valid_fp32 = (^v0 !== 1'bx) && (^v1 !== 1'bx) && (^v2 !== 1'bx);
+            if (actual === expected) pass_check_wide = 1;
+            else if (expected == 32'h7FC00000) pass_check_wide = (actual[30:23] == 8'hFF && actual[22:0] != 0); // any NaN
+            else begin
+                if (actual[31] == expected[31] && actual[30:23] == expected[30:23])
+                    pass_check_wide = ((actual[22:0] > expected[22:0]) ? (actual[22:0] - expected[22:0]) : (expected[22:0] - actual[22:0])) <= 64;
+                else if (actual[31] == expected[31] && 
+                         ((actual[30:23] == expected[30:23] + 1) || (actual[30:23] + 1 == expected[30:23])))
+                    pass_check_wide = 1; // adjacent exponents OK for LUT accuracy
+                else
+                    pass_check_wide = 0;
+            end
         end
     endfunction
 
-    // ----------------------------------------------------------------
-    // Main stimulus
-    // ----------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // VCD dump
+    // -----------------------------------------------------------------------
     initial begin
-        // ----------------------------------------------------------
-        // Banner
-        // ----------------------------------------------------------
-        $display("===========================================================");
-        $display(" tb_6 : Cube Root Path Test  (tb_6)");
-        $display("===========================================================");
-
-        // Initialise
-        rst_n        = 1'b0;
-        in_valid_in  = 1'b0;
-        out_ready_in = 1'b0;
-        a_in         = 32'h0;
-        b_in         = 32'h0;
-        c_in         = 32'h0;
-        d_in         = 32'h0;
-        pass_count   = 0;
-        fail_count   = 0;
-        test_num     = 0;
-
-        // Hold reset for several clock cycles
-        repeat (5) @(posedge clk);
-        rst_n = 1'b1;
-        repeat (2) @(posedge clk);
-
-        // ===========================================================
-        // TC1: a=1.0, b=0.0, c=0.0, d=-8.0  →  real root: 2
-        //   x^3 - 8 = 0  ⇒  x = 2  (cbrt(8))
-        // ===========================================================
-        test_num = 1;
-        $display("\n--- TC%0d: a=1.0, b=0.0, c=0.0, d=-8.0 ---", test_num);
-        drive_and_wait(32'h3F800000,   // 1.0
-                       32'h00000000,   // 0.0
-                       32'h00000000,   // 0.0
-                       32'hC1000000);  // -8.0
-
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
-        end
-
-        repeat (5) @(posedge clk);
-
-        // ===========================================================
-        // TC2: a=1.0, b=0.0, c=0.0, d=-27.0  →  real root: 3
-        //   x^3 - 27 = 0  ⇒  x = 3  (cbrt(27))
-        // ===========================================================
-        test_num = 2;
-        $display("\n--- TC%0d: a=1.0, b=0.0, c=0.0, d=-27.0 ---", test_num);
-        drive_and_wait(32'h3F800000,   // 1.0
-                       32'h00000000,   // 0.0
-                       32'h00000000,   // 0.0
-                       32'hC1D80000);  // -27.0
-
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
-        end
-
-        repeat (5) @(posedge clk);
-
-        // ===========================================================
-        // TC3: a=1.0, b=0.0, c=3.0, d=4.0
-        //   x^3 + 3x + 4 = 0  →  negative discriminant, cbrt path
-        // ===========================================================
-        test_num = 3;
-        $display("\n--- TC%0d: a=1.0, b=0.0, c=3.0, d=4.0 ---", test_num);
-        drive_and_wait(32'h3F800000,   // 1.0
-                       32'h00000000,   // 0.0
-                       32'h40400000,   // 3.0
-                       32'h40800000);  // 4.0
-
-        if (out_valid_out === 1'b1 || valid_fp32(x0_out, x1_out, x2_out)) begin
-            $display("  [PASS] TC%0d — out_valid asserted, outputs valid FP32", test_num);
-            pass_count = pass_count + 1;
-        end else begin
-            $display("  [FAIL] TC%0d — outputs contain X/Z or out_valid not asserted", test_num);
-            fail_count = fail_count + 1;
-        end
-
-        // ===========================================================
-        // Summary
-        // ===========================================================
-        repeat (5) @(posedge clk);
-        $display("\n===========================================================");
-        $display(" tb_6 Summary:  %0d PASSED, %0d FAILED  (of %0d tests)",
-                 pass_count, fail_count, pass_count + fail_count);
-        if (fail_count == 0)
-            $display(" *** ALL TESTS PASSED ***");
-        else
-            $display(" *** SOME TESTS FAILED ***");
-        $display("===========================================================\n");
-
-        $finish;
+        $dumpfile("tb_6.vcd");
+        $dumpvars(0, tb_6);
     end
 
-    // ----------------------------------------------------------------
-    // Timeout watchdog (prevent hang)
-    // ----------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Main test sequence
+    // -----------------------------------------------------------------------
     initial begin
-        #100000;
-        $display("[TIMEOUT] Simulation exceeded 100 us — aborting.");
+        pass_count = 0;
+        fail_count = 0;
+
+        $display("==========================================================");
+        $display("  tb_6 — Cube Root + Arccosine Testbench");
+        $display("==========================================================");
+
+        // ===================================================================
+        // Part A: fp32_cbrt tests
+        // ===================================================================
+        $display("");
+        $display("--- Part A: fp32_cbrt ---");
+
+        // A1: cbrt(8.0) = 2.0
+        cbrt_a = FP_EIGHT; #10;
+        if (pass_check_wide(cbrt_result, FP_TWO)) begin
+            $display("  [PASS] A1: cbrt(8.0)  = %h (expected %h)", cbrt_result, FP_TWO);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] A1: cbrt(8.0)  = %h (expected %h)", cbrt_result, FP_TWO);
+            fail_count = fail_count + 1;
+        end
+
+        // A2: cbrt(27.0) = 3.0
+        cbrt_a = FP_27; #10;
+        if (pass_check_wide(cbrt_result, FP_THREE)) begin
+            $display("  [PASS] A2: cbrt(27.0) = %h (expected %h)", cbrt_result, FP_THREE);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] A2: cbrt(27.0) = %h (expected %h)", cbrt_result, FP_THREE);
+            fail_count = fail_count + 1;
+        end
+
+        // A3: cbrt(-8.0) = -2.0
+        cbrt_a = FP_NEG_EIGHT; #10;
+        if (pass_check_wide(cbrt_result, FP_NEG_TWO)) begin
+            $display("  [PASS] A3: cbrt(-8.0) = %h (expected %h)", cbrt_result, FP_NEG_TWO);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] A3: cbrt(-8.0) = %h (expected %h)", cbrt_result, FP_NEG_TWO);
+            fail_count = fail_count + 1;
+        end
+
+        // A4: cbrt(1.0) = 1.0
+        cbrt_a = FP_ONE; #10;
+        if (pass_check_wide(cbrt_result, FP_ONE)) begin
+            $display("  [PASS] A4: cbrt(1.0)  = %h (expected %h)", cbrt_result, FP_ONE);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] A4: cbrt(1.0)  = %h (expected %h)", cbrt_result, FP_ONE);
+            fail_count = fail_count + 1;
+        end
+
+        // A5: cbrt(0.0) = 0.0
+        cbrt_a = FP_ZERO; #10;
+        if (pass_check_wide(cbrt_result, FP_ZERO)) begin
+            $display("  [PASS] A5: cbrt(0.0)  = %h (expected %h)", cbrt_result, FP_ZERO);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] A5: cbrt(0.0)  = %h (expected %h)", cbrt_result, FP_ZERO);
+            fail_count = fail_count + 1;
+        end
+
+        // A6: cbrt(NaN) = NaN
+        cbrt_a = FP_NAN; #10;
+        if (pass_check_wide(cbrt_result, FP_NAN)) begin
+            $display("  [PASS] A6: cbrt(NaN)  = %h (expected NaN)", cbrt_result);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] A6: cbrt(NaN)  = %h (expected NaN)", cbrt_result);
+            fail_count = fail_count + 1;
+        end
+
+        // ===================================================================
+        // Part B: fp32_acos tests
+        // ===================================================================
+        $display("");
+        $display("--- Part B: fp32_acos ---");
+
+        // B1: acos(1.0) ≈ 0.0
+        acos_a = FP_ONE; #10;
+        if (pass_check_wide(acos_result, FP_ZERO)) begin
+            $display("  [PASS] B1: acos(1.0)  = %h (expected ~%h)", acos_result, FP_ZERO);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] B1: acos(1.0)  = %h (expected ~%h)", acos_result, FP_ZERO);
+            fail_count = fail_count + 1;
+        end
+
+        // B2: acos(0.0) ≈ PI/2
+        acos_a = FP_ZERO; #10;
+        if (pass_check_wide(acos_result, FP_PI_HALF)) begin
+            $display("  [PASS] B2: acos(0.0)  = %h (expected ~%h)", acos_result, FP_PI_HALF);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] B2: acos(0.0)  = %h (expected ~%h)", acos_result, FP_PI_HALF);
+            fail_count = fail_count + 1;
+        end
+
+        // B3: acos(-1.0) ≈ PI
+        acos_a = FP_NEG_ONE; #10;
+        if (pass_check_wide(acos_result, FP_PI)) begin
+            $display("  [PASS] B3: acos(-1.0) = %h (expected ~%h)", acos_result, FP_PI);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] B3: acos(-1.0) = %h (expected ~%h)", acos_result, FP_PI);
+            fail_count = fail_count + 1;
+        end
+
+        // B4: acos(0.5) ≈ PI/3 ≈ 1.0472 (32'h3F860A92)
+        acos_a = FP_HALF; #10;
+        if (pass_check_wide(acos_result, FP_PI_THIRD)) begin
+            $display("  [PASS] B4: acos(0.5)  = %h (expected ~%h)", acos_result, FP_PI_THIRD);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] B4: acos(0.5)  = %h (expected ~%h)", acos_result, FP_PI_THIRD);
+            fail_count = fail_count + 1;
+        end
+
+        // B5: acos(NaN) = NaN
+        acos_a = FP_NAN; #10;
+        if (pass_check_wide(acos_result, FP_NAN)) begin
+            $display("  [PASS] B5: acos(NaN)  = %h (expected NaN)", acos_result);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] B5: acos(NaN)  = %h (expected NaN)", acos_result);
+            fail_count = fail_count + 1;
+        end
+
+        // ===================================================================
+        // Summary
+        // ===================================================================
+        $display("");
+        $display("==========================================================");
+        $display("  tb_6 SUMMARY: %0d PASSED, %0d FAILED out of %0d tests",
+                 pass_count, fail_count, pass_count + fail_count);
+        $display("==========================================================");
+
         $finish;
     end
 

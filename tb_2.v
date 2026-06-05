@@ -1,192 +1,161 @@
 `timescale 1ns/1ps
 
 //============================================================================
-// Testbench: tb_2
-// Purpose : Exercise the FP32 subtraction path inside cubic_solver.
-//           We use negative coefficients so the internal arithmetic
-//           encounters effective subtractions (sign-differing operands
-//           in the adder, or explicit subtractions in Cardano's formula).
+// tb_2.v — FP32 Subtraction Testbench
+// Tests fp32_add with sub=1 (subtraction mode)
 //============================================================================
-
 module tb_2;
 
-    // ---------------------------------------------------------------
-    // Clock & reset
-    // ---------------------------------------------------------------
-    reg         clk;
-    reg         rst_n;
+    // -----------------------------------------------------------------------
+    // Signals
+    // -----------------------------------------------------------------------
+    reg  [31:0] a, b;
+    reg         sub;
+    wire [31:0] result;
 
-    // DUT interface signals
-    reg         in_valid_in;
-    reg         out_ready_in;
-    reg  [31:0] a_in, b_in, c_in, d_in;
+    // Clock for sequencing
+    reg clk;
+    initial clk = 0;
+    always #20 clk = ~clk; // 40ns period, 25 MHz
 
-    wire        in_ready_out;
-    wire        out_valid_out;
-    wire [31:0] x0_out, x1_out, x2_out;
+    // Counters
+    integer pass_count, fail_count, test_num;
 
-    // ---------------------------------------------------------------
+    // -----------------------------------------------------------------------
     // DUT instantiation
-    // ---------------------------------------------------------------
-    cubic_solver uut (
-        .clk       (clk),
-        .rst_n     (rst_n),
-        .in_valid  (in_valid_in),
-        .in_ready  (in_ready_out),
-        .a         (a_in),
-        .b         (b_in),
-        .c         (c_in),
-        .d         (d_in),
-        .out_valid (out_valid_out),
-        .out_ready (out_ready_in),
-        .x0        (x0_out),
-        .x1        (x1_out),
-        .x2        (x2_out)
+    // -----------------------------------------------------------------------
+    fp32_add uut (
+        .a      (a),
+        .b      (b),
+        .sub    (sub),
+        .result (result)
     );
 
-    // ---------------------------------------------------------------
-    // Clock generation — 40 ns period (25 MHz)
-    // ---------------------------------------------------------------
-    initial clk = 0;
-    always #20 clk = ~clk;
-
-    // ---------------------------------------------------------------
+    // -----------------------------------------------------------------------
     // VCD dump
-    // ---------------------------------------------------------------
+    // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("waveform.vcd");
+        $dumpfile("tb_2.vcd");
         $dumpvars(0, tb_2);
     end
 
-    // ---------------------------------------------------------------
-    // Score keeping
-    // ---------------------------------------------------------------
-    integer pass_count;
-    integer fail_count;
-
-    // ---------------------------------------------------------------
-    // Helper: drive_and_wait
-    // ---------------------------------------------------------------
-    task drive_and_wait;
-        input [31:0] ta, tb, tc, td;
+    // -----------------------------------------------------------------------
+    // Tolerance check: exact match OR <=1 ULP difference
+    // -----------------------------------------------------------------------
+    function pass_check;
+        input [31:0] actual, expected;
+        reg [22:0] a_frac, e_frac;
+        reg [31:0] diff;
         begin
-            @(posedge clk);
-            a_in       = ta;
-            b_in       = tb;
-            c_in       = tc;
-            d_in       = td;
-            in_valid_in = 1'b1;
-            @(posedge clk);
-            in_valid_in = 1'b0;
-            // Wait for out_valid
-            wait (out_valid_out == 1'b1);
-            @(posedge clk);
-            #1;
-            $display("  x0 = %h, x1 = %h, x2 = %h", x0_out, x1_out, x2_out);
-            out_ready_in = 1'b1;
-            @(posedge clk);
-            out_ready_in = 1'b0;
-        end
-    endtask
-
-    // ---------------------------------------------------------------
-    // Helper: check outputs are not X/Z
-    // ---------------------------------------------------------------
-    task check_outputs;
-        input [255:0] test_label;
-        begin
-            if (out_valid_out !== 1'b1) begin
-                $display("  [FAIL] out_valid did not assert.");
-                fail_count = fail_count + 1;
-            end else if (^x0_out === 1'bx || ^x1_out === 1'bx || ^x2_out === 1'bx) begin
-                $display("  [FAIL] One or more outputs contain X/Z.");
-                fail_count = fail_count + 1;
-            end else begin
-                $display("  [PASS]");
-                pass_count = pass_count + 1;
+            if (actual === expected) pass_check = 1;
+            else if (actual[31] == expected[31] && actual[30:23] == expected[30:23]) begin
+                a_frac = actual[22:0];
+                e_frac = expected[22:0];
+                diff = (a_frac > e_frac) ? (a_frac - e_frac) : (e_frac - a_frac);
+                pass_check = (diff <= 1);
             end
+            else pass_check = 0;
+        end
+    endfunction
+
+    // -----------------------------------------------------------------------
+    // Check task
+    // -----------------------------------------------------------------------
+    task check;
+        input [31:0] expected;
+        input [8*64-1:0] desc;
+        begin
+            if (pass_check(result, expected)) begin
+                $display("  [PASS] Test %0d: %0s | result=%h expected=%h", test_num, desc, result, expected);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("  [FAIL] Test %0d: %0s | result=%h expected=%h", test_num, desc, result, expected);
+                fail_count = fail_count + 1;
+            end
+            test_num = test_num + 1;
         end
     endtask
 
-    // ---------------------------------------------------------------
-    // Main stimulus
-    // ---------------------------------------------------------------
-    initial begin
-        // Initialise
-        in_valid_in  = 1'b0;
-        out_ready_in = 1'b0;
-        a_in         = 32'h0;
-        b_in         = 32'h0;
-        c_in         = 32'h0;
-        d_in         = 32'h0;
-        pass_count   = 0;
-        fail_count   = 0;
+    // -----------------------------------------------------------------------
+    // FP32 constants
+    // -----------------------------------------------------------------------
+    localparam FP_0p0    = 32'h00000000;
+    localparam FP_1p0    = 32'h3F800000;
+    localparam FP_NEG1p0 = 32'hBF800000;
+    localparam FP_2p0    = 32'h40000000;
+    localparam FP_3p0    = 32'h40400000;
+    localparam FP_NEG3p0 = 32'hC0400000;
+    localparam FP_5p0    = 32'h40A00000;
+    localparam FP_NEG5p0 = 32'hC0A00000;
+    localparam FP_8p0    = 32'h41000000;
+    localparam FP_NAN    = 32'h7FC00000;
+    localparam FP_PINF   = 32'h7F800000;
 
-        // Reset sequence — hold rst_n low for 100 ns
-        rst_n = 1'b0;
-        #100;
-        rst_n = 1'b1;
+    // -----------------------------------------------------------------------
+    // Main test sequence
+    // -----------------------------------------------------------------------
+    initial begin
+        pass_count = 0;
+        fail_count = 0;
+        test_num   = 1;
+        sub        = 1'b1; // Subtraction mode throughout
+
+        $display("==========================================================");
+        $display("  tb_2: FP32 Subtraction Tests (fp32_add, sub=1)");
+        $display("==========================================================");
+
+        // Test 1: 3.0 - 1.0 = 2.0
         @(posedge clk);
+        a = FP_3p0; b = FP_1p0;
+        #10;
+        check(FP_2p0, "3.0 - 1.0 = 2.0");
 
+        // Test 2: 1.0 - 1.0 = 0.0
+        @(posedge clk);
+        a = FP_1p0; b = FP_1p0;
+        #10;
+        check(FP_0p0, "1.0 - 1.0 = 0.0");
+
+        // Test 3: 5.0 - 8.0 = -3.0
+        @(posedge clk);
+        a = FP_5p0; b = FP_8p0;
+        #10;
+        check(FP_NEG3p0, "5.0 - 8.0 = -3.0");
+
+        // Test 4: -1.0 - (-3.0) = 2.0
+        @(posedge clk);
+        a = FP_NEG1p0; b = FP_NEG3p0;
+        #10;
+        check(FP_2p0, "-1.0 - (-3.0) = 2.0");
+
+        // Test 5: 0.0 - 5.0 = -5.0
+        @(posedge clk);
+        a = FP_0p0; b = FP_5p0;
+        #10;
+        check(FP_NEG5p0, "0.0 - 5.0 = -5.0");
+
+        // Test 6: NaN - 1.0 = NaN
+        @(posedge clk);
+        a = FP_NAN; b = FP_1p0;
+        #10;
+        check(FP_NAN, "NaN - 1.0 = NaN");
+
+        // Test 7: +Inf - +Inf = NaN
+        @(posedge clk);
+        a = FP_PINF; b = FP_PINF;
+        #10;
+        check(FP_NAN, "+Inf - +Inf = NaN");
+
+        // ----- Summary -----
         $display("==========================================================");
-        $display(" tb_2 — FP32 Subtraction Path Tests");
+        $display("  Summary: %0d PASSED, %0d FAILED out of %0d tests",
+                 pass_count, fail_count, pass_count + fail_count);
+        if (fail_count == 0)
+            $display("  *** ALL TESTS PASSED ***");
+        else
+            $display("  *** SOME TESTS FAILED ***");
         $display("==========================================================");
 
-        // ----------------------------------------------------------
-        // Test Vector 1:  x^3 - 3x^2 + 3x - 1 = 0  =>  (x-1)^3 = 0
-        //   a=1.0, b=-3.0, c=3.0, d=-1.0
-        //   Subtraction exercised: b is negative, d is negative.
-        //   p = 3/1 - 9/3 = 0,  q = 2*27/27 - 9/3 + (-1) = 2 - 3 -1 = -2
-        //   Root: x = 1
-        // ----------------------------------------------------------
-        $display("----------------------------------------------------------");
-        $display(" Test 1: a=1.0, b=-3.0, c=3.0, d=-1.0  => (x-1)^3");
-        $display("----------------------------------------------------------");
-        drive_and_wait(32'h3F800000, 32'hC0400000, 32'h40400000, 32'hBF800000);
-        check_outputs("Test1");
-
-        // ----------------------------------------------------------
-        // Test Vector 2:  x^3 - 6x^2 + 12x - 8 = 0  =>  (x-2)^3 = 0
-        //   a=1.0, b=-6.0, c=12.0, d=-8.0
-        //   Large negative b and d exercise subtraction heavily.
-        //   Root: x = 2
-        // ----------------------------------------------------------
-        $display("----------------------------------------------------------");
-        $display(" Test 2: a=1.0, b=-6.0, c=12.0, d=-8.0  => (x-2)^3");
-        $display("----------------------------------------------------------");
-        drive_and_wait(32'h3F800000, 32'hC0C00000, 32'h41400000, 32'hC1000000);
-        check_outputs("Test2");
-
-        // ----------------------------------------------------------
-        // Test Vector 3:  x^3 - 1 = 0
-        //   a=1.0, b=0.0, c=0.0, d=-1.0
-        //   Already depressed: p=0, q=-1.  Subtraction in q computation.
-        //   Real root: x = 1
-        // ----------------------------------------------------------
-        $display("----------------------------------------------------------");
-        $display(" Test 3: a=1.0, b=0.0, c=0.0, d=-1.0  => x^3 - 1");
-        $display("----------------------------------------------------------");
-        drive_and_wait(32'h3F800000, 32'h00000000, 32'h00000000, 32'hBF800000);
-        check_outputs("Test3");
-
-        // ----------------------------------------------------------
-        // Summary
-        // ----------------------------------------------------------
-        $display("==========================================================");
-        $display(" FP32 Subtraction Test Summary: %0d PASSED, %0d FAILED",
-                 pass_count, fail_count);
-        $display("==========================================================");
-
-        #200;
-        $finish;
-    end
-
-    // ---------------------------------------------------------------
-    // Timeout watchdog
-    // ---------------------------------------------------------------
-    initial begin
-        #1_000_000;
-        $display("[TIMEOUT] Simulation exceeded 1 ms — aborting.");
         $finish;
     end
 

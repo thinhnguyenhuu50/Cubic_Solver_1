@@ -66,7 +66,9 @@ puts "\[DEBUG\] ---- LEF physical data loaded OK ----"
 
 
 puts "\[DEBUG\] ---- Reading HDL source files ----"
-read_hdl -v2001 " cubic_solver.v "
+read_hdl -v2001 " pade_lut.v fp32_add.v fp32_mul.v fp32_div.v \
+	fp32_log2.v fp32_exp2.v fp32_sqrt.v fp32_cbrt.v \
+	fp32_cos.v fp32_acos.v cubic_solver.v "
 puts "\[DEBUG\] ---- HDL read complete ----"
 
 puts "\[DEBUG\] ---- Elaborating design: $DESIGN ----"

@@ -1,196 +1,168 @@
 `timescale 1ns/1ps
 
 //============================================================================
-// Testbench: tb_1
-// Purpose : Exercise the FP32 addition path inside cubic_solver.
-//           The depressed-cubic transformation computes
-//               p = c/a - b^2/(3a^2)
-//           which requires additions internally.
-//           We choose positive integer-valued coefficients so the adder
-//           is exercised with straightforward mantissa alignment cases.
+// tb_1.v — FP32 Addition Testbench
+// Tests fp32_add with sub=0 (addition mode)
 //============================================================================
-
 module tb_1;
 
-    // ---------------------------------------------------------------
-    // Clock & reset
-    // ---------------------------------------------------------------
-    reg         clk;
-    reg         rst_n;
+    // -----------------------------------------------------------------------
+    // Signals
+    // -----------------------------------------------------------------------
+    reg  [31:0] a, b;
+    reg         sub;
+    wire [31:0] result;
 
-    // DUT interface signals
-    reg         in_valid_in;
-    reg         out_ready_in;
-    reg  [31:0] a_in, b_in, c_in, d_in;
+    // Clock for sequencing (not needed by DUT, but used for test pacing)
+    reg clk;
+    initial clk = 0;
+    always #20 clk = ~clk; // 40ns period, 25 MHz
 
-    wire        in_ready_out;
-    wire        out_valid_out;
-    wire [31:0] x0_out, x1_out, x2_out;
+    // Counters
+    integer pass_count, fail_count, test_num;
 
-    // ---------------------------------------------------------------
+    // -----------------------------------------------------------------------
     // DUT instantiation
-    // ---------------------------------------------------------------
-    cubic_solver uut (
-        .clk       (clk),
-        .rst_n     (rst_n),
-        .in_valid  (in_valid_in),
-        .in_ready  (in_ready_out),
-        .a         (a_in),
-        .b         (b_in),
-        .c         (c_in),
-        .d         (d_in),
-        .out_valid (out_valid_out),
-        .out_ready (out_ready_in),
-        .x0        (x0_out),
-        .x1        (x1_out),
-        .x2        (x2_out)
+    // -----------------------------------------------------------------------
+    fp32_add uut (
+        .a      (a),
+        .b      (b),
+        .sub    (sub),
+        .result (result)
     );
 
-    // ---------------------------------------------------------------
-    // Clock generation — 40 ns period (25 MHz)
-    // ---------------------------------------------------------------
-    initial clk = 0;
-    always #20 clk = ~clk;
-
-    // ---------------------------------------------------------------
+    // -----------------------------------------------------------------------
     // VCD dump
-    // ---------------------------------------------------------------
+    // -----------------------------------------------------------------------
     initial begin
-        $dumpfile("waveform.vcd");
+        $dumpfile("tb_1.vcd");
         $dumpvars(0, tb_1);
     end
 
-    // ---------------------------------------------------------------
-    // Score keeping
-    // ---------------------------------------------------------------
-    integer pass_count;
-    integer fail_count;
-
-    // ---------------------------------------------------------------
-    // Helper: drive_and_wait
-    // Drives a, b, c, d with in_valid for one cycle, then waits for
-    // out_valid before capturing outputs.
-    // ---------------------------------------------------------------
-    task drive_and_wait;
-        input [31:0] ta, tb, tc, td;
+    // -----------------------------------------------------------------------
+    // Tolerance check: exact match OR <=1 ULP difference
+    // -----------------------------------------------------------------------
+    function pass_check;
+        input [31:0] actual, expected;
+        reg [22:0] a_frac, e_frac;
+        reg [31:0] diff;
         begin
-            @(posedge clk);
-            a_in       = ta;
-            b_in       = tb;
-            c_in       = tc;
-            d_in       = td;
-            in_valid_in = 1'b1;
-            @(posedge clk);
-            in_valid_in = 1'b0;
-            // Wait for out_valid
-            wait (out_valid_out == 1'b1);
-            @(posedge clk);
-            #1;
-            $display("  x0 = %h, x1 = %h, x2 = %h", x0_out, x1_out, x2_out);
-            out_ready_in = 1'b1;
-            @(posedge clk);
-            out_ready_in = 1'b0;
-        end
-    endtask
-
-    // ---------------------------------------------------------------
-    // Helper: check outputs are not X/Z
-    // ---------------------------------------------------------------
-    task check_outputs;
-        input [255:0] test_label; // 32-char label packed
-        begin
-            if (out_valid_out !== 1'b1) begin
-                $display("  [FAIL] out_valid did not assert.");
-                fail_count = fail_count + 1;
-            end else if (^x0_out === 1'bx || ^x1_out === 1'bx || ^x2_out === 1'bx) begin
-                $display("  [FAIL] One or more outputs contain X/Z.");
-                fail_count = fail_count + 1;
-            end else begin
-                $display("  [PASS]");
-                pass_count = pass_count + 1;
+            if (actual === expected) pass_check = 1;
+            else if (actual[31] == expected[31] && actual[30:23] == expected[30:23]) begin
+                a_frac = actual[22:0];
+                e_frac = expected[22:0];
+                diff = (a_frac > e_frac) ? (a_frac - e_frac) : (e_frac - a_frac);
+                pass_check = (diff <= 1);
             end
+            else pass_check = 0;
+        end
+    endfunction
+
+    // -----------------------------------------------------------------------
+    // Check task — compares result against expected, updates counters
+    // -----------------------------------------------------------------------
+    task check;
+        input [31:0] expected;
+        input [8*64-1:0] desc; // test description string
+        begin
+            if (pass_check(result, expected)) begin
+                $display("  [PASS] Test %0d: %0s | result=%h expected=%h", test_num, desc, result, expected);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("  [FAIL] Test %0d: %0s | result=%h expected=%h", test_num, desc, result, expected);
+                fail_count = fail_count + 1;
+            end
+            test_num = test_num + 1;
         end
     endtask
 
-    // ---------------------------------------------------------------
-    // Main stimulus
-    // ---------------------------------------------------------------
-    initial begin
-        // Initialise
-        in_valid_in  = 1'b0;
-        out_ready_in = 1'b0;
-        a_in         = 32'h0;
-        b_in         = 32'h0;
-        c_in         = 32'h0;
-        d_in         = 32'h0;
-        pass_count   = 0;
-        fail_count   = 0;
+    // -----------------------------------------------------------------------
+    // FP32 constants
+    // -----------------------------------------------------------------------
+    localparam FP_0p0    = 32'h00000000;
+    localparam FP_0p5    = 32'h3F000000;
+    localparam FP_1p0    = 32'h3F800000;
+    localparam FP_NEG1p0 = 32'hBF800000;
+    localparam FP_2p0    = 32'h40000000;
+    localparam FP_NEG2p0 = 32'hC0000000;
+    localparam FP_3p0    = 32'h40400000;
+    localparam FP_NEG5p0 = 32'hC0A00000;
+    localparam FP_7p0    = 32'h40E00000;
+    localparam FP_NAN    = 32'h7FC00000;
+    localparam FP_PINF   = 32'h7F800000;
+    localparam FP_NINF   = 32'hFF800000;
 
-        // Reset sequence — hold rst_n low for 100 ns
-        rst_n = 1'b0;
-        #100;
-        rst_n = 1'b1;
+    // -----------------------------------------------------------------------
+    // Main test sequence
+    // -----------------------------------------------------------------------
+    initial begin
+        pass_count = 0;
+        fail_count = 0;
+        test_num   = 1;
+        sub        = 1'b0; // Addition mode throughout
+
+        $display("==========================================================");
+        $display("  tb_1: FP32 Addition Tests (fp32_add, sub=0)");
+        $display("==========================================================");
+
+        // Test 1: 1.0 + 2.0 = 3.0
         @(posedge clk);
+        a = FP_1p0; b = FP_2p0;
+        #10;
+        check(FP_3p0, "1.0 + 2.0 = 3.0");
 
+        // Test 2: 0.5 + 0.5 = 1.0
+        @(posedge clk);
+        a = FP_0p5; b = FP_0p5;
+        #10;
+        check(FP_1p0, "0.5 + 0.5 = 1.0");
+
+        // Test 3: -1.0 + 1.0 = 0.0
+        @(posedge clk);
+        a = FP_NEG1p0; b = FP_1p0;
+        #10;
+        check(FP_0p0, "-1.0 + 1.0 = 0.0");
+
+        // Test 4: 3.0 + (-5.0) = -2.0
+        @(posedge clk);
+        a = FP_3p0; b = FP_NEG5p0;
+        #10;
+        check(FP_NEG2p0, "3.0 + (-5.0) = -2.0");
+
+        // Test 5: 0.0 + 7.0 = 7.0
+        @(posedge clk);
+        a = FP_0p0; b = FP_7p0;
+        #10;
+        check(FP_7p0, "0.0 + 7.0 = 7.0");
+
+        // Test 6: NaN + 1.0 = NaN
+        @(posedge clk);
+        a = FP_NAN; b = FP_1p0;
+        #10;
+        check(FP_NAN, "NaN + 1.0 = NaN");
+
+        // Test 7: +Inf + 1.0 = +Inf
+        @(posedge clk);
+        a = FP_PINF; b = FP_1p0;
+        #10;
+        check(FP_PINF, "+Inf + 1.0 = +Inf");
+
+        // Test 8: +Inf + (-Inf) = NaN
+        @(posedge clk);
+        a = FP_PINF; b = FP_NINF;
+        #10;
+        check(FP_NAN, "+Inf + (-Inf) = NaN");
+
+        // ----- Summary -----
         $display("==========================================================");
-        $display(" tb_1 — FP32 Addition Path Tests");
+        $display("  Summary: %0d PASSED, %0d FAILED out of %0d tests",
+                 pass_count, fail_count, pass_count + fail_count);
+        if (fail_count == 0)
+            $display("  *** ALL TESTS PASSED ***");
+        else
+            $display("  *** SOME TESTS FAILED ***");
         $display("==========================================================");
 
-        // ----------------------------------------------------------
-        // Test Vector 1:  x^3 + 3x^2 + 3x + 1 = 0   =>  (x+1)^3 = 0
-        //   a=1.0, b=3.0, c=3.0, d=1.0
-        //   p = 3/1 - 9/3 = 3 - 3 = 0  (addition of 3 + (-3))
-        //   Root: x = -1
-        // ----------------------------------------------------------
-        $display("----------------------------------------------------------");
-        $display(" Test 1: a=1.0, b=3.0, c=3.0, d=1.0  => (x+1)^3");
-        $display("----------------------------------------------------------");
-        drive_and_wait(32'h3F800000, 32'h40400000, 32'h40400000, 32'h3F800000);
-        check_outputs("Test1");
-
-        // ----------------------------------------------------------
-        // Test Vector 2:  x^3 + 6x^2 + 12x + 8 = 0  =>  (x+2)^3 = 0
-        //   a=1.0, b=6.0, c=12.0, d=8.0
-        //   p = 12/1 - 36/3 = 12 - 12 = 0  (addition path exercised)
-        //   Root: x = -2
-        // ----------------------------------------------------------
-        $display("----------------------------------------------------------");
-        $display(" Test 2: a=1.0, b=6.0, c=12.0, d=8.0  => (x+2)^3");
-        $display("----------------------------------------------------------");
-        drive_and_wait(32'h3F800000, 32'h40C00000, 32'h41400000, 32'h41000000);
-        check_outputs("Test2");
-
-        // ----------------------------------------------------------
-        // Test Vector 3:  2x^3 + 6x^2 + 6x + 2 = 0  =>  2(x+1)^3 = 0
-        //   a=2.0, b=6.0, c=6.0, d=2.0
-        //   After normalisation by a=2:  x^3 + 3x^2 + 3x + 1
-        //   p = 3 - 3 = 0  (addition of normalised terms)
-        //   Root: x = -1
-        // ----------------------------------------------------------
-        $display("----------------------------------------------------------");
-        $display(" Test 3: a=2.0, b=6.0, c=6.0, d=2.0  => 2(x+1)^3");
-        $display("----------------------------------------------------------");
-        drive_and_wait(32'h40000000, 32'h40C00000, 32'h40C00000, 32'h40000000);
-        check_outputs("Test3");
-
-        // ----------------------------------------------------------
-        // Summary
-        // ----------------------------------------------------------
-        $display("==========================================================");
-        $display(" FP32 Addition Test Summary: %0d PASSED, %0d FAILED",
-                 pass_count, fail_count);
-        $display("==========================================================");
-
-        #200;
-        $finish;
-    end
-
-    // ---------------------------------------------------------------
-    // Timeout watchdog — prevent infinite hangs
-    // ---------------------------------------------------------------
-    initial begin
-        #1_000_000;
-        $display("[TIMEOUT] Simulation exceeded 1 ms — aborting.");
         $finish;
     end
 
