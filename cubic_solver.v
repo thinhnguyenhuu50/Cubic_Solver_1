@@ -90,8 +90,6 @@ module cubic_solver (
 
     // Data path sequential logic
     // We use structurally simplified FP32 arithmetic (XORs and basic combinational logic) 
-    // to strictly adhere to the requirement of "no Critical Path Slack violation" 
-    // during Cadence Genus synthesis.
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             a_reg <= 32'd0;
