@@ -218,7 +218,8 @@ module cubic_solver (
             S_BRANCH: begin
                 // disc >= 0 (sign bit = 0) → three real roots
                 // disc < 0 (sign bit = 1) → one real root (Cardano)
-                if (!disc[31] || is_fp_zero(disc))
+                // If p is 0, we must avoid dividing by p in trig method. Cardano works perfectly for p=0.
+                if ((!disc[31] || is_fp_zero(disc)) && !is_fp_zero(p_reg))
                     next_state = S_TRI_NP;
                 else
                     next_state = S_CAR_Q24;

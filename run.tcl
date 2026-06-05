@@ -11,6 +11,9 @@ puts "Hostname : [info hostname]"
 ## Preset global variables and attributes
 ##############################################################################
 
+## --- ADDED: Capture Start Time ---
+set start_time [clock seconds]
+## ---------------------------------
 
 set DESIGN cubic_solver
 set GEN_EFF low
@@ -67,8 +70,8 @@ puts "\[DEBUG\] ---- LEF physical data loaded OK ----"
 
 puts "\[DEBUG\] ---- Reading HDL source files ----"
 read_hdl -v2001 " pade_lut.v fp32_add.v fp32_mul.v fp32_div.v \
-	fp32_log2.v fp32_exp2.v fp32_sqrt.v fp32_cbrt.v \
-	fp32_cos.v fp32_acos.v cubic_solver.v "
+  fp32_log2.v fp32_exp2.v fp32_sqrt.v fp32_cbrt.v \
+  fp32_cos.v fp32_acos.v cubic_solver.v "
 puts "\[DEBUG\] ---- HDL read complete ----"
 
 puts "\[DEBUG\] ---- Elaborating design: $DESIGN ----"
@@ -198,8 +201,18 @@ write_do_lec -golden_design fv_map -revised_design ${_OUTPUTS_PATH}/${DESIGN}_m.
 
 puts "Final Runtime & Memory."
 time_info FINAL
+
+## --- ADDED: Calculate Elapsed Time ---
+set end_time [clock seconds]
+set elapsed_seconds [expr {$end_time - $start_time}]
+set elapsed_hrs [expr {$elapsed_seconds / 3600}]
+set elapsed_mins [expr {($elapsed_seconds % 3600) / 60}]
+set elapsed_secs [expr {$elapsed_seconds % 60}]
+## -------------------------------------
+
 puts "============================"
 puts "Synthesis Finished ........."
+puts "Elapsed Time: ${elapsed_hrs}h ${elapsed_mins}m ${elapsed_secs}s"
 puts "============================"
 
 ##file copy [get_db / .stdout_log] ${_LOG_PATH}/.

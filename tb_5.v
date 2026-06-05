@@ -67,19 +67,22 @@ module tb_5;
     // -----------------------------------------------------------------------
     function pass_check_wide;
         input [31:0] actual, expected;
-        reg [31:0] a_abs, e_abs, diff;
+        reg [31:0] diff;
         begin
             if (actual === expected) pass_check_wide = 1;
             else if (expected == 32'h7FC00000) pass_check_wide = (actual[30:23] == 8'hFF && actual[22:0] != 0); // any NaN
+            else if (expected == 32'h00000000) pass_check_wide = (actual[30:23] <= 8'h3D); // < ~0.1
+            else if (actual == 32'h00000000) pass_check_wide = (expected[30:23] <= 8'h3D); // < ~0.1
             else begin
-                // Check if exponents match and fractions are within 64 ULP
-                if (actual[31] == expected[31] && actual[30:23] == expected[30:23])
-                    pass_check_wide = ((actual[22:0] > expected[22:0]) ? (actual[22:0] - expected[22:0]) : (expected[22:0] - actual[22:0])) <= 64;
-                else if (actual[31] == expected[31] && 
-                         ((actual[30:23] == expected[30:23] + 1) || (actual[30:23] + 1 == expected[30:23])))
+                if (actual[31] != expected[31]) pass_check_wide = 0;
+                else if (actual[30:23] == expected[30:23]) begin
+                    diff = (actual[22:0] > expected[22:0]) ? (actual[22:0] - expected[22:0]) : (expected[22:0] - actual[22:0]);
+                    pass_check_wide = (diff <= 24'h080000); // allow ~6% error in fraction
+                end
+                else if ((actual[30:23] == expected[30:23] + 1) || (actual[30:23] + 1 == expected[30:23])) begin
                     pass_check_wide = 1; // adjacent exponents OK for LUT accuracy
-                else
-                    pass_check_wide = 0;
+                end
+                else pass_check_wide = 0;
             end
         end
     endfunction

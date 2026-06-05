@@ -119,26 +119,21 @@ module fp32_div (
     reg [24:0] remainder;  // 25-bit remainder (needs to compare against 24-bit divisor)
 
     always @(*) begin : restoring_div_block
-        reg [47:0] dividend;
-        reg [24:0] trial;
+        reg [24:0] rem;
         integer i;
 
-        dividend  = {a_mant, 24'b0};
-        remainder = 25'b0;
+        rem = {1'b0, a_mant};
         quotient  = 25'b0;
 
-        for (i = 47; i >= 23; i = i - 1) begin
-            // Shift remainder left and bring in next dividend bit
-            remainder = {remainder[23:0], dividend[i]};
-            // Trial subtraction
-            trial = remainder - {1'b0, b_mant};
-            if (trial[24] == 1'b0) begin
-                // trial >= 0: subtraction succeeded
-                remainder = trial;
-                quotient[i - 23] = 1'b1;
+        for (i = 24; i >= 0; i = i - 1) begin
+            if (rem >= {1'b0, b_mant}) begin
+                rem = rem - {1'b0, b_mant};
+                quotient[i] = 1'b1;
             end else begin
-                // trial < 0: restore (keep remainder unchanged)
-                quotient[i - 23] = 1'b0;
+                quotient[i] = 1'b0;
+            end
+            if (i > 0) begin
+                rem = {rem[23:0], 1'b0};
             end
         end
     end

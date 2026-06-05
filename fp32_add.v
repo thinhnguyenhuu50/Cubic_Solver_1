@@ -164,7 +164,7 @@ module fp32_add (
         integer i;
         begin
             count_leading_zeros = 5'd24; // default: all zeros
-            for (i = 23; i >= 0; i = i - 1) begin
+            for (i = 0; i <= 23; i = i + 1) begin
                 if (val[i]) begin
                     count_leading_zeros = 5'd23 - i[4:0];
                 end
