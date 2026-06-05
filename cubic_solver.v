@@ -178,6 +178,16 @@ module cubic_solver (
     endfunction
 
     // ---------------------------------------------------------------
+    // Helper: check if FP32 value is small (magnitude < 2^-11)
+    // ---------------------------------------------------------------
+    function is_fp_small;
+        input [31:0] v;
+        begin
+            is_fp_small = (v[30:23] < 8'd120);
+        end
+    endfunction
+
+    // ---------------------------------------------------------------
     // Helper: negate FP32 (flip sign bit)
     // ---------------------------------------------------------------
     function [31:0] fp_neg;
@@ -219,7 +229,8 @@ module cubic_solver (
                 // disc >= 0 (sign bit = 0) → three real roots
                 // disc < 0 (sign bit = 1) → one real root (Cardano)
                 // If p is 0, we must avoid dividing by p in trig method. Cardano works perfectly for p=0.
-                if ((!disc[31] || is_fp_zero(disc)) && !is_fp_zero(p_reg))
+                // Small negative discriminant treated as 0 (double root) to avoid Cardano precision issues
+                if ((!disc[31] || is_fp_small(disc)) && !is_fp_zero(p_reg))
                     next_state = S_TRI_NP;
                 else
                     next_state = S_CAR_Q24;

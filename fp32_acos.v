@@ -153,7 +153,7 @@ module fp32_acos (
         else if (a_is_inf)
             result = NaN;           // Inf → NaN (acos undefined)
         else if (abs_gt_one)
-            result = NaN;           // |x| > 1 → NaN
+            result = a_sign ? FP_PI : FP_ZERO;  // Clamp out-of-bounds to 0 or pi
         else if (a_is_pos_one)
             result = FP_ZERO;       // acos(1.0) = 0
         else if (a_is_neg_one)
